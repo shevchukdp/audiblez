@@ -237,11 +237,11 @@ cargo build --release --target x86_64-pc-windows-gnullvm
 <section id="server">
   <div class="wrap">
     <h2><span class="emo">🌐</span> Remote TTS server</h2>
-    <p><code>remote_tts_server/</code> ships a standalone Kokoro TTS server so the native GUI (or any client) can run on a different machine than the one doing the synthesis.</p>
-    <pre><code>cd remote_tts_server
-pip install -r requirements.txt
-python server.py            # listens on 127.0.0.1:8765 by default</code></pre>
-    <p>Point the GUI's controller URL at the host running the server, and it will stream jobs over the same JSON protocol.</p>
+    <p><code>remote_tts_server/</code> ships a standalone Kokoro TTS server (FastAPI + uvicorn) so the native GUI (or any client) can run on a different machine than the one doing the synthesis.</p>
+    <pre><code># from the repo root
+python -m remote_tts_server.server --host 0.0.0.0 --port 8000
+# or: uvicorn remote_tts_server.server:app --host 0.0.0.0 --port 8000</code></pre>
+    <p>It listens on <code>0.0.0.0:8000</code> by default. Point the GUI's controller URL at the host running the server and it streams jobs over the same JSON protocol.</p>
   </div>
 </section>
 
