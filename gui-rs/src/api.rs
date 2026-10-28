@@ -16,6 +16,10 @@ pub struct RunParams {
     pub model_path: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub device: Option<String>,
+    /// base url of a remote_tts_server (Kokoro on a CUDA box). When set, the
+    /// controller runs the pipeline but TTS inference goes to this server.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tts_url: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub format_out: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]

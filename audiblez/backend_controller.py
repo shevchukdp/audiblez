@@ -93,6 +93,7 @@ CORE_KWARGS = {
     "max_chapters",
     "max_sentences",
     "selected_chapters",
+    "tts_url",
 }
 
 

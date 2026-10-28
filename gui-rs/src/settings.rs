@@ -11,6 +11,10 @@ pub struct Settings {
     pub remote: bool,
     /// base url of the controller, e.g. http://spark01:8765 or http://127.0.0.1:8765
     pub controller_url: String,
+    /// base url of a remote_tts_server (Kokoro on CUDA), e.g.
+    /// http://100.66.167.48:8000. Blank = synthesize locally on the controller.
+    #[serde(default)]
+    pub tts_url: String,
     pub default_voice: String,
     pub bitrate: String,
     pub quality: i32,
@@ -22,6 +26,7 @@ impl Default for Settings {
         Settings {
             remote: false,
             controller_url: "http://127.0.0.1:8765".into(),
+            tts_url: String::new(),
             default_voice: "af_sky".into(),
             bitrate: "128".into(),
             quality: 4,

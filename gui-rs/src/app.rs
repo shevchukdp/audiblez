@@ -120,6 +120,7 @@ impl App {
             output_folder: self.output_folder.clone(),
             model_path: non_blank(&self.model_path),
             device: non_blank(&self.device),
+            tts_url: non_blank(&self.settings.lock().unwrap().tts_url.clone()),
             format_out: non_blank(&self.format_out),
             encode: non_blank(&self.encode),
             bitrate: non_blank(&self.settings.lock().unwrap().bitrate.clone()),
@@ -129,6 +130,7 @@ impl App {
             pick_manually: Some(false),
         };
         let rt = self.rt.clone();
+        let _ = self.settings.lock().unwrap().save();
         match rt.block_on(self.client.run(&params)) {
             Ok(_) => self.last_message = "job submitted".into(),
             Err(e) => self.last_message = e,
@@ -211,6 +213,14 @@ impl EframeApp for App {
             hint(
                 ui,
                 "local = 127.0.0.1 controller; remote = http://spark01:8765 or spark02",
+            );
+
+            ui.add_space(4.0);
+            ui.label("TTS server (optional, CUDA GPU box):");
+            ui.text_edit_singleline(&mut settings.lock().unwrap().tts_url);
+            hint(
+                ui,
+                "e.g. http://100.66.167.48:8000 — runs Kokoro on the GPU. Blank = synthesize on the controller.",
             );
 
             ui.add_space(8.0);

@@ -53,6 +53,7 @@ class SynthesisResponse(BaseModel):
     sample_rate: int = 24000
     format: str = "float32"
     audio_b64: str = ""
+    error: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -63,12 +64,22 @@ _pipeline = None
 _pipeline_lock = threading.Lock()
 
 
-def get_pipeline(model_path: str | None, device: str):
+def get_pipeline(model_path: str | None, device: str, language: str = "a"):
     global _pipeline
     with _pipeline_lock:
         if _pipeline is None:
-            dev = device if device not in ("", "auto") else "cuda"
-            _pipeline = KPipeline(lang_code="en-us", repo_id=model_path or None, device=dev)
+            if device in ("", "auto"):
+                import torch
+                device = "cuda" if torch.cuda.is_available() else "cpu"
+            lang = (language or "a")[:1]  # voice-first-letter codes: a/b/e/...
+            try:
+                # kokoro >= 0.8: repo_id identifies the HF model
+                _pipeline = KPipeline(lang_code=lang, repo_id=model_path or None,
+                                      device=device)
+            except TypeError:
+                # kokoro 0.7.x: no repo_id kwarg (downloads are pre-cached)
+                _pipeline = KPipeline(lang_code=lang, device=device)
+            print(f"[remote_tts] pipeline loaded on {device} (lang={lang})", flush=True)
     return _pipeline
 
 
@@ -85,7 +96,9 @@ def _worker():
 
         try:
             req: SynthesisRequest = job["request"]
-            pipeline = get_pipeline(job["model_path"], job["device"])
+            # Prefer the voice's language code (a/b/e/...) like audiblez.core does.
+            lang = (req.voice or "af_bella")[:1]
+            pipeline = get_pipeline(job["model_path"], job["device"], lang)
             segments = []
             for _, _, audio in pipeline(req.text, voice=req.voice, speed=req.speed):
                 segments.append(np.asarray(audio, dtype=np.float32))
@@ -118,7 +131,7 @@ app = FastAPI(title="audiblez remote TTS", version="1.0.0", lifespan=lifespan)
 @app.post("/synthesize", response_model=SynthesisResponse)
 def synthesize(req: SynthesisRequest) -> SynthesisResponse:
     done = threading.Event()
-    job = {"request": req, "model_path": None, "device": "cuda", "done": done}
+    job = {"request": req, "model_path": None, "device": "auto", "done": done}
     with _queue_cv:
         _queue.append(job)
         _queue_cv.notify()
@@ -127,13 +140,18 @@ def synthesize(req: SynthesisRequest) -> SynthesisResponse:
     if status == "ok":
         import base64
         b64 = base64.b64encode(payload.tobytes()).decode("ascii")
-        return SynthesisResponse(audio_b64=b64, sample_rate=int(payload.shape[0] / 24000 * 24000))
+        return SynthesisResponse(audio_b64=b64, sample_rate=24000)
     return SynthesisResponse(ok=False, audio_b64="", error=str(payload))
 
 
 @app.get("/health")
 def health():
-    return {"ok": True, "device": "cuda"}
+    try:
+        import torch
+        dev = "cuda" if torch.cuda.is_available() else "cpu"
+    except Exception:
+        dev = "unknown"
+    return {"ok": True, "device": dev, "pipeline_loaded": _pipeline is not None}
 
 
 if __name__ == "__main__":

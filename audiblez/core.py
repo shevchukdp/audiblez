@@ -30,6 +30,40 @@ from pick import pick
 sample_rate = 24000
 
 
+class RemotePipeline:
+    """HTTP client for remote_tts_server (Kokoro running on a CUDA box).
+
+    Drop-in replacement for KPipeline with the same call signature, so
+    gen_audio_segments() works unchanged: yields (graphemes, phonemes, audio)
+    tuples — one per request — where audio is float32 PCM at 24 kHz.
+    Sentence splitting and progress reporting stay local (spaCy); only the
+    model inference is shipped over HTTP to the GPU server.
+    """
+
+    def __init__(self, base_url, timeout=600):
+        import urllib.request
+        self._urlopen = urllib.request.urlopen
+        self._url = base_url.rstrip('/') + '/synthesize'
+        self.timeout = timeout
+
+    def __call__(self, text, voice='af_bella', speed=1.0, split_pattern=None, **kwargs):
+        import json
+        import base64
+        import urllib.request
+        payload = json.dumps({
+            'text': text, 'voice': voice, 'speed': float(speed),
+        }).encode('utf-8')
+        req = urllib.request.Request(  # noqa: S310 (https not needed on LAN)
+            self._url, data=payload,
+            headers={'Content-Type': 'application/json'})
+        with self._urlopen(req, timeout=self.timeout) as resp:
+            obj = json.loads(resp.read())
+        if not obj.get('ok'):
+            raise RuntimeError(f'remote TTS error: {obj.get("error") or "unknown"}')
+        audio = np.frombuffer(base64.b64decode(obj['audio_b64']), dtype=np.float32)
+        yield None, None, audio
+
+
 def load_spacy():
     if not spacy.util.is_package("xx_ent_wiki_sm"):
         print("Downloading Spacy model xx_ent_wiki_sm...")
@@ -70,7 +104,8 @@ def set_espeak_library():
 
 
 def main(file_path, voice, pick_manually, speed, output_folder='.',
-         max_chapters=None, max_sentences=None, selected_chapters=None, post_event=None):
+         max_chapters=None, max_sentences=None, selected_chapters=None,
+         tts_url=None, post_event=None):
     if post_event: post_event('CORE_STARTED')
     load_spacy()
     if output_folder != '.':
@@ -109,14 +144,20 @@ def main(file_path, voice, pick_manually, speed, output_folder='.',
     stats = SimpleNamespace(
         total_chars=sum(map(len, texts)),
         processed_chars=0,
-        chars_per_sec=500 if torch.cuda.is_available() else 50)
+        chars_per_sec=500 if (torch.cuda.is_available() or tts_url) else 50)
     print('Started at:', time.strftime('%H:%M:%S'))
     print(f'Total characters: {stats.total_chars:,}')
     print('Total words:', len(' '.join(texts).split()))
     eta = strfdelta((stats.total_chars - stats.processed_chars) / stats.chars_per_sec)
     print(f'Estimated time remaining (assuming {stats.chars_per_sec} chars/sec): {eta}')
-    set_espeak_library()
-    pipeline = KPipeline(lang_code=voice[0])  # a for american or b for british etc.
+    if tts_url:
+        # Model inference runs on a remote CUDA box (remote_tts_server);
+        # espeak-ng/phonemization happens there, so skip local setup+load.
+        print('Using remote TTS server at', tts_url)
+        pipeline = RemotePipeline(tts_url)
+    else:
+        set_espeak_library()
+        pipeline = KPipeline(lang_code=voice[0])  # a for american or b for british etc.
 
     chapter_wav_files = []
     for i, chapter in enumerate(selected_chapters, start=1):
