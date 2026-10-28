@@ -32,42 +32,52 @@ progress.
 
 ## Build
 
+Verified working path is the standard **`x86_64-pc-windows-gnu`** target with a
+real mingw-w64 toolchain on `PATH` (for `gcc`, and for `as`/`dlltool` which
+generate the `raw-dylib` import libs used by `windows-sys`):
+
 ```powershell
 cd gui-rs
-cargo build --release --target x86_64-pc-windows-gnullvm
-# binary: gui-rs\target\x86_64-pc-windows-gnullvm\release\audiblez.exe
+# one-time: download & unpack a portable mingw-w64 (e.g. winlibs GCC), then:
+$bin = "C:\temp\opencode\mingw-w64\mingw64\bin"   # dir containing gcc.exe/as.exe/dlltool.exe
+$env:PATH = "$bin;$env:PATH"
+$env:CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER = "$bin\gcc.exe"
+cargo build --release --target x86_64-pc-windows-gnu
+# binary: gui-rs\target\x86_64-pc-windows-gnu\release\audiblez.exe
 ```
 
-Requires the Rust toolchain (`rustup`) plus the LLVM-GNU target:
+Requires the Rust toolchain (`rustup`):
 
 ```powershell
-rustup target add x86_64-pc-windows-gnullvm
+rustup target add x86_64-pc-windows-gnu
 ```
 
-### Linking (Windows, no MSVC/clang)
+> **Why not `gnullvm`?** The `x86_64-pc-windows-gnullvm` target is *freestanding*:
+> it expects clang to supply the full mingw CRT startup (`crtbegin/crtend/crtn.o`).
+> With only rustup's bundled `crt2.o` and no clang, the produced exe crashes with
+> `0xC0000005` in `__tmainCRTStartup` **before `main` runs**. Do not ship that
+> target unless clang + the full CRT objects are available at link time.
+>
+> **Why not MSVC?** Needs the Windows SDK `Lib` (`kernel32.lib`, `libucrt.lib`, …);
+> VS BuildTools alone (no SDK) cannot link.
 
-This target links with the bundled `rust-lld` (see `gui-rs\.cargo\config.toml`)
-because the machine has neither an MSVC `link.exe` nor a 64-bit clang/LLVM. The
-`rust-lld` linker is pointed at the toolchain's bundled Windows import libraries
-(`kernel32`, `user32`, `opengl32`, ...) via the `rustflags` in that config, so no
-system linker or `dlltool` is needed.
+### Linking (windows-gnu)
 
-The gnullvm target does not ship a `libunwind.a` for the `-lunwind` it passes by
-default, so the repo vendors one at `gui-rs\vendor\libunwind.a` — a byte-identical
-copy of the GNU toolchain's `libgcc_eh.a`, which provides the `_Unwind_*` symbols
-libstd's panic handler needs. Because it lives in the repo (and its dir is the
-first `-L` in `config.toml`), the build no longer depends on any file copied into
-the toolchain directory and therefore survives `rustup update`.
-
-> Note: building with the plain `--target x86_64-pc-windows-gnu` target instead
-> hits `dlltool` import-lib generation errors on some crates; the gnullvm target
-> avoids that.
+The `windows-sys` crates in the graph use `#[link(..., kind = "raw-dylib")]`, so
+rustc spawns `dlltool` to synthesize import libraries at link time. rustup's
+minimal self-contained `dlltool` cannot do this (it has no assembler to spawn),
+so a **real mingw-w64 bin dir must be on `PATH`** — its `dlltool` + `as` handle
+the job. Any winlibs/MSYS2 mingw-w64 (GCC 13+) works; e.g.
+[winlibs](https://winlibs.com/) `winlibs-x86_64-posix-seh-gcc-*-mingw-w64ucrt-*.zip`.
 
 ## Run
 
 ```powershell
-.\target\release\audiblez.exe
+.\target\x86_64-pc-windows-gnu\release\audiblez.exe
 ```
+
+Runtime evidence on the last verified build: process stays alive, Win32 reports
+`IsWindow=True IsWindowVisible=True Title='audiblez'`, empty stderr, no panic.
 
 Settings (controller URL, remote/local, bitrate, quality, cover, default voice)
 are persisted next to the executable as `audiblez.json`.

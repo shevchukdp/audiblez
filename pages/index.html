@@ -207,10 +207,10 @@ audiblez-ui</code></pre>
       <div class="card"><h3>Transport-agnostic</h3><p>Local or remote controller via the existing JSON protocol.</p></div>
       <div class="card"><h3>File pickers</h3><p>Native Windows open-file dialogs to choose the <code>.epub</code>.</p></div>
     </div>
-    <pre><code># build the native Windows executable
-cargo build --release --target x86_64-pc-windows-gnullvm
-# -> target/x86_64-pc-windows-gnullvm/release/audiblez.exe</code></pre>
-    <p>Built with the LLVM-GNU (<code>gnullvm</code>) target and the bundled <code>rust-lld</code> linker (see <code>gui-rs/.cargo/config.toml</code>). The <code>.epub</code> is sent to the controller, which runs the same Python pipeline (TTS → ffmpeg) under the hood.</p>
+    <pre><code># build the native Windows executable (needs mingw-w64 gcc/as/dlltool on PATH)
+cargo build --release --target x86_64-pc-windows-gnu
+# -> target/x86_64-pc-windows-gnu/release/audiblez.exe</code></pre>
+    <p>Built with the standard <code>x86_64-pc-windows-gnu</code> target and a real mingw-w64 toolchain (GCC 13+, e.g. <a href="https://winlibs.com/">winlibs</a>) — its <code>dlltool</code> + <code>as</code> generate the <code>raw-dylib</code> import libs. Verified running: the window opens, Win32 reports <code>IsWindowVisible=True</code>, no panics. See <code>gui-rs/README.md</code> for exact build steps and why the <code>gnullvm</code> and MSVC targets don't work on a bare rustup machine. The <code>.epub</code> is sent to the controller, which runs the same Python pipeline (TTS → ffmpeg) under the hood.</p>
   </div>
 </section>
 
