@@ -38,6 +38,7 @@ impl Job {
 /// (127.0.0.1) or a remote one on spark01 / spark02. Same UI, same JSON.
 pub struct App {
     client: Client,
+    rt: std::sync::Arc<tokio::runtime::Runtime>,
     settings: Arc<Mutex<Settings>>,
     job: Job,
     // text fields
@@ -53,10 +54,11 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(client: Client, settings: Settings) -> Self {
+    pub fn new(client: Client, settings: Settings, rt: std::sync::Arc<tokio::runtime::Runtime>) -> Self {
         let output = std::env::temp_dir();
         let mut this = App {
             client,
+            rt,
             settings: Arc::new(Mutex::new(settings)),
             job: Job::idle(),
             file_path: String::new(),
@@ -73,7 +75,8 @@ impl App {
     }
 
     fn poll(&mut self) {
-        match pollster::block_on(self.client.status()) {
+        let rt = self.rt.clone();
+        match rt.block_on(self.client.status()) {
             Ok(s) => {
                 self.job.status = s.status.clone();
                 self.job.error = s.error.clone();
@@ -99,7 +102,8 @@ impl App {
     }
 
     fn refresh_status(&mut self) {
-        let reachable = self.client.is_reachable();
+        let rt = self.rt.clone();
+        let reachable = rt.block_on(self.client.is_reachable());
         if reachable {
             self.poll();
         } else {
@@ -124,14 +128,16 @@ impl App {
             genre: non_blank(&self.genre),
             pick_manually: Some(false),
         };
-        match pollster::block_on(self.client.run(&params)) {
+        let rt = self.rt.clone();
+        match rt.block_on(self.client.run(&params)) {
             Ok(_) => self.last_message = "job submitted".into(),
             Err(e) => self.last_message = e,
         }
     }
 
     fn on_stop(&mut self) {
-        match pollster::block_on(self.client.stop()) {
+        let rt = self.rt.clone();
+        match rt.block_on(self.client.stop()) {
             Ok(_) => self.last_message = "stop requested".into(),
             Err(e) => self.last_message = e,
         }

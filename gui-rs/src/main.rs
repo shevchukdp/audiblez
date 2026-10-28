@@ -5,6 +5,7 @@
 
 mod api;
 mod app;
+#[cfg(all(target_os = "windows", target_env = "gnullvm"))]
 mod crt;
 mod dialogs;
 mod settings;
@@ -25,8 +26,18 @@ fn main() {
     };
 
     let settings = settings::Settings::load();
-    let client = api::Client::new(&settings.controller_url);
-    let app = app::App::new(client, settings);
+
+    // Single multi-thread Tokio runtime that owns all reqwest I/O. It must outlive
+    // the GUI (App holds an Arc to it) and `reqwest::Client` construction must
+    // happen while the runtime context is entered.
+    let rt = std::sync::Arc::new(
+        tokio::runtime::Runtime::new().expect("failed to start tokio runtime"),
+    );
+    let client = {
+        let _guard = rt.enter();
+        api::Client::new(&settings.controller_url)
+    };
+    let app = app::App::new(client, settings, rt);
 
     eframe::run_native(
         "audiblez",

@@ -66,19 +66,17 @@ impl Client {
         self.base_url = base_url.trim_end_matches('/').to_string();
     }
 
-    pub fn is_reachable(&self) -> bool {
+    pub async fn is_reachable(&self) -> bool {
         // A cheap GET that returns 404 for "/" but proves the TCP/HTTP path works.
-        pollster::block_on(async {
-            match self
-                .http
-                .get(format!("{}/status", self.base_url))
-                .send()
-                .await
-            {
-                Ok(r) => r.status().is_success(),
-                Err(_) => false,
-            }
-        })
+        match self
+            .http
+            .get(format!("{}/status", self.base_url))
+            .send()
+            .await
+        {
+            Ok(r) => r.status().is_success(),
+            Err(_) => false,
+        }
     }
 
     pub async fn status(&self) -> Result<Status, String> {
