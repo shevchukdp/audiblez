@@ -99,6 +99,8 @@ def main(file_path, voice, pick_manually, speed, output_folder='.',
             selected_chapters = find_good_chapters(document_chapters)
     print_selected_chapters(document_chapters, selected_chapters)
     texts = [c.extracted_text for c in selected_chapters]
+    if post_event:
+        post_event('CORE_STARTED', chapters_total=len(selected_chapters))
 
     has_ffmpeg = shutil.which('ffmpeg') is not None
     if not has_ffmpeg:
@@ -321,19 +323,32 @@ def strfdelta(tdelta, fmt='{D:02}d {H:02}h {M:02}m {S:02}s'):
     return f.format(fmt, **values)
 
 
+def _has_ffmpeg_encoder(name):
+    """True if the ffmpeg on PATH supports the given encoder (e.g. libfdk_aac)."""
+    try:
+        proc = subprocess.run(['ffmpeg', '-hide_banner', '-encoders'],
+                              capture_output=True, text=True)
+    except FileNotFoundError:
+        return False
+    return name in proc.stdout
+
+
 def concat_wavs_with_ffmpeg(chapter_files, output_folder, filename):
     wav_list_txt = Path(output_folder) / filename.replace('.epub', '_wav_list.txt')
     with open(wav_list_txt, 'w') as f:
         for wav_file in chapter_files:
             f.write(f"file '{wav_file}'\n")
     concat_file_path = Path(output_folder) / filename.replace('.epub', '.tmp.mp4')
+    # libfdk_aac is not shipped in most GPL ffmpeg builds; fall back to the
+    # native AAC encoder so this works with any ffmpeg.
+    codec = 'libfdk_aac' if _has_ffmpeg_encoder('libfdk_aac') else 'aac'
     subprocess.run([
         'ffmpeg', '-y', '-f', 'concat', '-safe', '0', '-i', wav_list_txt,
         # '-c', 'copy',
-        '-c:a',  'libfdk_aac',
+        '-c:a',  codec,
         '-b:a',  '192k',
-        concat_file_path])
-    Path(wav_list_txt).unlink()
+        concat_file_path], check=True)
+    Path(wav_list_txt).unlink(missing_ok=True)
     return concat_file_path
 
 
@@ -374,7 +389,9 @@ def create_m4b(chapter_files, filename, cover_image, output_folder):
         f'{final_filename}'  # Output file
     ])
 
-    Path(concat_file_path).unlink()
+    Path(concat_file_path).unlink(missing_ok=True)
+    if proc.returncode != 0:
+        raise RuntimeError(f'ffmpeg failed to create {final_filename} (exit {proc.returncode})')
     if proc.returncode == 0:
         print(f'{final_filename} created. Enjoy your audiobook.')
         print('Feel free to delete the intermediary .wav chapter files, the .m4b is all you need.')

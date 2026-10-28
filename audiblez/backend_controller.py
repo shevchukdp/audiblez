@@ -16,10 +16,21 @@ Usage:
 """
 import argparse
 import json
+import sys
 import threading
 import traceback
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+
+# The engine prints book text (titles may contain CJK/em-dashes/etc). On Windows
+# a redirected stdout defaults to the ANSI code page (cp1251/cp1252) and such
+# prints raise UnicodeEncodeError, killing the job. Force UTF-8 with a safe
+# fallback so logging can never break synthesis.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):
+        pass
 
 import audiblez.core as core
 
@@ -49,7 +60,13 @@ class CoreState:
                 self.status = "running"
                 self.chapters_total = kwargs.get("chapters_total", 0)
             elif event == "CORE_PROGRESS":
-                self.stats = kwargs.get("stats") or {}
+                st = kwargs.get("stats")
+                # core hands us a SimpleNamespace; json.dumps cannot serialize
+                # it, which used to crash /status (HTTP 500 / dropped
+                # connection) while a job was running.
+                if st is not None and not isinstance(st, dict):
+                    st = vars(st) if hasattr(st, "__dict__") else {}
+                self.stats = st or {}
             elif event == "CORE_CHAPTER_STARTED":
                 self.active_chapter = kwargs.get("chapter_index", -1)
             elif event == "CORE_CHAPTER_FINISHED":
@@ -89,6 +106,9 @@ def run_job(params):
     try:
         params = dict(params)
         params.pop("_meta", None)
+        # core.main() declares pick_manually as a required positional arg, but the
+        # native GUI never sends it (chapter selection is non-interactive there).
+        params.setdefault("pick_manually", False)
         core_kwargs = {k: v for k, v in params.items() if k in CORE_KWARGS}
         extras = {k: v for k, v in params.items() if k not in CORE_KWARGS}
         if extras:
