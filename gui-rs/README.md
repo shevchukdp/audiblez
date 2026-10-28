@@ -79,6 +79,37 @@ the job. Any winlibs/MSYS2 mingw-w64 (GCC 13+) works; e.g.
 Runtime evidence on the last verified build: process stays alive, Win32 reports
 `IsWindow=True IsWindowVisible=True Title='audiblez'`, empty stderr, no panic.
 
+## Remote CUDA GPU (spark01 / spark02)
+
+Synthesis (Kokoro-82M) is the only heavy step — run it on a GPU box and keep
+everything else local:
+
+1. On the GPU box (any Python 3.10–3.12, NVIDIA GPU):
+
+   ```bash
+   pip install "kokoro>=0.7" fastapi uvicorn soundfile spacy
+   # xx_ent_wiki_sm is needed on the *controller* machine, not here.
+   # espeak-ng must be installed (apt install espeak-ng / equivalent).
+   git clone https://github.com/shevchukdp/audiblez && cd audiblez
+   uvicorn remote_tts_server.server:app --host 0.0.0.0 --port 8000
+   ```
+
+   The first `/synthesize` request downloads/loads `hexgrad/Kokoro-82M`
+   (~330 MB) onto the GPU and reuses it for all later requests.
+
+2. In the GUI, fill **TTS server** with e.g. `http://100.66.167.48:8000`
+   (blank = synthesize on the controller's CPU). Check it via
+   `GET http://<box>:8000/health` → `{"ok":true,"device":"cuda"}`.
+
+Controller (`python -m audiblez.backend_controller --port 8765`) keeps running
+locally so it can read your book files; only per-sentence inference goes over
+HTTP. Verified: `tts_url` job finished, server logged the `/synthesize` hits,
+`mao.m4b` produced.
+
+> Note: `100.66.167.48:8888/v1` (the TensorFold LLM server) is an **LLM**, not
+> TTS — it cannot synthesize speech. ffmpeg's CUDA options are video-only and
+> irrelevant here; AAC encoding is not the bottleneck.
+
 Settings (controller URL, remote/local, bitrate, quality, cover, default voice)
 are persisted next to the executable as `audiblez.json`.
 
