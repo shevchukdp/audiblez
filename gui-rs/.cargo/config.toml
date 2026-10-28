@@ -1,0 +1,39 @@
+# Link config for the LLVM-GNU (gnullvm) target on this machine.
+#
+# This machine has no system 64-bit clang/LLVM and no MSVC `link.exe`, so we
+# link with the LLVM linker shipped in the GNU toolchain (`rust-lld.exe`).
+#
+# rustc's gnullvm default link args pass the Windows import libraries
+# (kernel32, user32, opengl32, shell32, gdi32, advapi32, windows, ...) and
+# `-lmingw32 -lmingwex -lmsvcrt` plus `-lunwind`, but they do NOT pull in the
+# CRT entry point or the gcc unwind runtime, so two things are linked explicitly:
+#
+#   * `crt2.o` (gnullvm's bundled CRT object) provides `mainCRTStartup`, the
+#     entry point that rustc's `fn main` maps to.
+#   * `-lunwind` resolves to a `libunwind.a` that contains the real static
+#     unwind implementation (see below), providing the `_Unwind_*` symbols that
+#     libstd's panic_unwind references.
+#
+# Because rust-lld is used as an external linker, rust does not automatically
+# pass the toolchain's standard `-L` search paths, so we append the two dirs
+# that hold the bundled import libraries here.
+#
+# Reproducibility: the `libunwind.a` shim lives in the toolchain's
+# `self-contained` dir (outside the repo) because it simply reuses the toolchain's
+# own `libgcc_eh.a`. A `rustup update` would reset that file to the (missing)
+# default; if a future build fails with "unable to find -lunwind" or undefined
+# `_Unwind_*`, regenerate it with:
+#     cp <toolchain>/x86_64-pc-windows-gnu/lib/rustlib/x86_64-pc-windows-gnu/lib/
+#        self-contained/libgcc_eh.a <toolchain>/.../self-contained/libunwind.a
+
+[target.x86_64-pc-windows-gnullvm]
+linker = "C:\\Users\\shevc\\.rustup\\toolchains\\stable-x86_64-pc-windows-gnu\\lib\\rustlib\\x86_64-pc-windows-gnu\\bin\\rust-lld.exe"
+rustflags = [
+    "-C",
+    "link-arg=-LC:\\Users\\shevc\\.rustup\\toolchains\\stable-x86_64-pc-windows-gnu\\lib\\rustlib\\x86_64-pc-windows-gnu\\lib",
+    "-C",
+    "link-arg=-LC:\\Users\\shevc\\.rustup\\toolchains\\stable-x86_64-pc-windows-gnu\\lib\\rustlib\\x86_64-pc-windows-gnu\\lib\\self-contained",
+    # gnullvm's bundled CRT: defines mainCRTStartup (the entry point for fn main)
+    "-C",
+    "link-arg=C:\\Users\\shevc\\.rustup\\toolchains\\stable-x86_64-pc-windows-gnu\\lib\\rustlib\\x86_64-pc-windows-gnullvm\\lib\\self-contained\\crt2.o",
+]

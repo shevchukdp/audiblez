@@ -1,0 +1,40 @@
+[package]
+name = "audiblez-gui"
+version = "1.0.0"
+edition = "2021"
+description = "Native Windows GUI (egui) for audiblez - audiobook generator"
+license = "MIT"
+authors = ["shevchukdp"]
+
+[profile.release]
+opt-level = 3
+strip = true
+lto = "thin"
+
+[dependencies]
+egui = "0.31"
+eframe = { version = "0.31", default-features = false, features = [
+    "default_fonts",
+    "glow",
+] }
+reqwest = { version = "0.12", default-features = true, features = ["json"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+pollster = "0.4"
+
+[target.x86_64-pc-windows-gnullvm.dependencies.windows]
+version = "0.52"
+features = [
+    "Win32_UI_Controls_Dialogs",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_Foundation",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Com",
+    "Win32_System_Com_StructuredStorage",
+]
+
+[[bin]]
+name = "audiblez"
+path = "src/main.rs"
