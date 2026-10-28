@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Audiblez — Audiobooks from e-books</title>
+<meta name="description" content="Audiblez generates .m4b audiobooks from .epub e-books using Kokoro's high-quality text-to-speech." />
+<style>
+  :root {
+    --bg: #0d1117;
+    --bg2: #161b22;
+    --panel: #1c2128;
+    --border: #30363d;
+    --text: #e6edf3;
+    --muted: #8b949e;
+    --accent: #f472b6;
+    --accent2: #818cf8;
+    --ok: #3fb950;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    font-family: var(--sans);
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--accent2); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .wrap { max-width: 960px; margin: 0 auto; padding: 0 20px; }
+  header.hero {
+    background: radial-gradient(1200px 400px at 50% -10%, rgba(244,114,182,0.18), transparent 60%),
+                radial-gradient(1000px 400px at 50% -20%, rgba(129,140,248,0.16), transparent 55%),
+                var(--bg);
+    border-bottom: 1px solid var(--border);
+    padding: 64px 0 56px;
+  }
+  .logo {
+    display: inline-flex; align-items: center; gap: 12px;
+    font-weight: 800; font-size: 1.4rem; letter-spacing: -0.02em;
+  }
+  .logo-mark {
+    width: 34px; height: 34px; border-radius: 9px;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    display: grid; place-items: center; font-size: 20px; box-shadow: 0 4px 20px rgba(244,114,182,0.35);
+  }
+  h1 { font-size: 2.8rem; margin: 22px 0 10px; letter-spacing: -0.03em; line-height: 1.08; }
+  h1 .grad { background: linear-gradient(90deg, var(--accent), var(--accent2)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .sub { font-size: 1.15rem; color: var(--muted); max-width: 640px; }
+  .cta { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 26px; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 11px 18px; border-radius: 9px; font-weight: 600; font-size: 0.95rem;
+    border: 1px solid var(--border); background: var(--panel); color: var(--text);
+    transition: transform .08s ease, border-color .15s ease, background .15s ease;
+  }
+  .btn:hover { transform: translateY(-1px); text-decoration: none; border-color: var(--accent2); }
+  .btn.primary { background: linear-gradient(135deg, var(--accent), var(--accent2)); color: #0d1117; border: none; }
+  .btn.ghost { background: transparent; }
+  nav.toc {
+    position: sticky; top: 0; z-index: 20;
+    background: rgba(13,17,23,0.85); backdrop-filter: blur(8px);
+    border-bottom: 1px solid var(--border);
+  }
+  nav.toc .wrap { display: flex; gap: 20px; align-items: center; padding-top: 12px; padding-bottom: 12px; }
+  nav.toc a { color: var(--muted); font-size: .9rem; font-weight: 600; }
+  nav.toc a:hover { color: var(--text); text-decoration: none; }
+  nav.toc .spacer { flex: 1; }
+  section { padding: 46px 0; border-bottom: 1px solid var(--border); }
+  section:last-of-type { border-bottom: none; }
+  h2 { font-size: 1.7rem; letter-spacing: -0.02em; margin: 0 0 14px; display: flex; align-items: center; gap: 10px; }
+  h2 .emo { font-size: 1.4rem; }
+  p { color: #cbd5e1; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; margin-top: 20px; }
+  .card {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+    padding: 18px 18px 20px;
+  }
+  .card h3 { margin: 0 0 6px; font-size: 1.05rem; }
+  .card p { margin: 0; font-size: .92rem; color: var(--muted); }
+  pre {
+    background: #010409; border: 1px solid var(--border); border-radius: 10px;
+    padding: 14px 16px; overflow-x: auto; font-family: var(--mono); font-size: .86rem;
+    color: #e6edf3;
+  }
+  code { font-family: var(--mono); font-size: .9em; background: rgba(110,118,129,0.18); padding: 2px 6px; border-radius: 6px; }
+  pre code { background: none; padding: 0; }
+  .pill {
+    display: inline-block; font-size: .78rem; font-weight: 600; padding: 3px 10px;
+    border-radius: 999px; border: 1px solid var(--border); color: var(--muted); margin: 2px 4px 2px 0;
+  }
+  .pill.ok { color: var(--ok); border-color: rgba(63,185,80,0.4); }
+  .pill.win { color: var(--accent); border-color: rgba(244,114,182,0.4); }
+  table { width: 100%; border-collapse: collapse; margin-top: 16px; font-size: .9rem; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; }
+  td code { white-space: nowrap; }
+  footer { color: var(--muted); font-size: .85rem; padding: 34px 0; }
+  footer a { color: var(--muted); }
+  .badge-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
+  .note { border-left: 3px solid var(--accent2); padding: 6px 14px; color: var(--muted); background: rgba(129,140,248,0.08); border-radius: 0 8px 8px 0; margin-top: 14px; font-size: .9rem; }
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="wrap">
+    <div class="logo"><span class="logo-mark">🔊</span> Audiblez</div>
+    <h1>Turn <span class="grad">e-books</span> into audiobooks</h1>
+    <p class="sub">Audiblez reads <code>.epub</code> books aloud with <a href="https://huggingface.co/hexgrad/Kokoro-82M" target="_blank" rel="noopener">Kokoro-82M</a> text-to-speech and stitches the result into a single <code>.m4b</code> audiobook — ready for VLC, Apple Books, or any audiobook player.</p>
+    <div class="cta">
+      <a class="btn primary" href="https://github.com/shevchukdp/audiblez">View on GitHub ↗</a>
+      <a class="btn" href="#install">Install</a>
+      <a class="btn" href="#gui">The GUI</a>
+      <a class="btn ghost" href="#native-gui">Native Windows app</a>
+    </div>
+    <div class="badge-row">
+      <span class="pill ok">pip install audiblez</span>
+      <span class="pill win">Native Windows GUI</span>
+      <span class="pill">Kokoro-82M</span>
+      <span class="pill">CUDA + CPU</span>
+      <span class="pill">8 languages</span>
+      <span class="pill">Remote TTS server</span>
+    </div>
+  </div>
+</header>
+
+<nav class="toc">
+  <div class="wrap">
+    <a href="#features">Features</a>
+    <a href="#install">Install</a>
+    <a href="#cli">CLI</a>
+    <a href="#gui">GUI</a>
+    <a href="#native-gui">Native app</a>
+    <a href="#voices">Voices</a>
+    <a href="#server">TTS server</a>
+  </div>
+</nav>
+
+<section id="features">
+  <div class="wrap">
+    <h2><span class="emo">⚡</span> What it does</h2>
+    <p>Audiblez generates <code>.m4b</code> audiobooks from regular <code>.epub</code> e-books using Kokoro's high-quality, natural-sounding speech synthesis. On a Google Colab T4 GPU it can convert ~160,000 characters ("Animal's Farm") in about <strong>5 minutes</strong> (~600 chars/sec); on an M2 MacBook CPU it takes about an hour (~60 chars/sec).</p>
+    <div class="grid">
+      <div class="card"><h3>📖 Chapter aware</h3><p>Automatically splits the book into chapters and converts each one, then reassembles a single .m4b.</p></div>
+      <div class="card"><h3>🎙️ 100+ voices</h3><p>American, British, Spanish, French, Hindi, Italian, Japanese, Brazilian Portuguese and Mandarin Chinese.</p></div>
+      <div class="card"><h3>🎚️ Speed control</h3><p>Speed the narration up or down from 0.5× to 2.0×.</p></div>
+      <div class="card"><h3>🖐️ Pick chapters</h3><p>Manually choose which sections to read out loud with the <code>--pick</code> option.</p></div>
+      <div class="card"><h3>🚀 CUDA support</h3><p>Pass <code>--cuda</code> to run synthesis on a GPU via PyTorch.</p></div>
+      <div class="card"><h3>🖥️ Native GUI</h3><p>A purpose-built Rust + egui launcher for Windows replaces the old Python/wxPython UI.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="install">
+  <div class="wrap">
+    <h2><span class="emo">📦</span> Install</h2>
+    <p>Requires Python 3, plus <code>espeak-ng</code> and <code>ffmpeg</code> on your machine.</p>
+    <pre><code># Ubuntu / Debian
+sudo apt install ffmpeg espeak-ng
+pip install audiblez
+
+# macOS
+brew install ffmpeg espeak-ng
+pip install audiblez</code></pre>
+    <p>Then convert a book in one line:</p>
+    <pre><code>audiblez book.epub -v af_sky</code></pre>
+    <p>This creates <code>book_chapter_1.wav</code>, <code>book_chapter_2.wav</code>, … and finally a <code>book.m4b</code> with the whole book.</p>
+  </div>
+</section>
+
+<section id="cli">
+  <div class="wrap">
+    <h2><span class="emo">💻</span> Command line</h2>
+    <pre><code>usage: audiblez [-h] [-v VOICE] [-p] [-s SPEED] [-c] [-o FOLDER] epub_file_path
+
+  -v VOICE, --voice VOICE   Choose narrating voice (e.g. af_sky)
+  -p, --pick                Interactively select which chapters to read
+  -s SPEED, --speed SPEED   Set speed from 0.5 to 2.0
+  -c, --cuda                Use GPU via Cuda in Torch if available
+  -o FOLDER, --output FOLDER  Output folder for the audiobook</code></pre>
+    <div class="note">The first letter of a voice is the language code and the second is the speaker's gender, e.g. <code>im_nicola</code> is an Italian male voice.</div>
+  </div>
+</section>
+
+<section id="gui">
+  <div class="wrap">
+    <h2><span class="emo">🧩</span> The Python GUI</h2>
+    <p>A simple graphical interface to run audiblez. Install the extra dependencies and run <code>audiblez-ui</code>.</p>
+    <pre><code>pip install audiblez pillow wxpython
+audiblez-ui</code></pre>
+    <p>On Ubuntu/Debian you also need the GTK dev headers:</p>
+    <pre><code>sudo apt install libgtk-3-dev</code></pre>
+  </div>
+</section>
+
+<section id="native-gui">
+  <div class="wrap">
+    <h2><span class="emo">🪟</span> Native Windows app (new)</h2>
+    <p><code>gui-rs/</code> is a <strong>native Windows GUI</strong> written in Rust + egui, replacing the Python/wxPython <code>audiblez/ui.py</code>. It talks to the audiblez controller the same way — over the same JSON protocol — so it works either against a local controller (<code>127.0.0.1:8765</code>) or a remote one.</p>
+    <div class="grid">
+      <div class="card"><h3>Native &amp; fast</h3><p>egui/eframe, single Windows executable — no Python runtime needed at launch.</p></div>
+      <div class="card"><h3>Transport-agnostic</h3><p>Local or remote controller via the existing JSON protocol.</p></div>
+      <div class="card"><h3>File pickers</h3><p>Native Windows open-file dialogs to choose the <code>.epub</code>.</p></div>
+    </div>
+    <pre><code># build the native Windows executable
+cargo build --release --target x86_64-pc-windows-gnullvm
+# -> target/x86_64-pc-windows-gnullvm/release/audiblez.exe</code></pre>
+    <p>Built with the LLVM-GNU (<code>gnullvm</code>) target and the bundled <code>rust-lld</code> linker (see <code>gui-rs/.cargo/config.toml</code>). The <code>.epub</code> is sent to the controller, which runs the same Python pipeline (TTS → ffmpeg) under the hood.</p>
+  </div>
+</section>
+
+<section id="voices">
+  <div class="wrap">
+    <h2><span class="emo">🌍</span> Supported voices</h2>
+    <p>Use <code>-v</code> to choose a voice. The first letter is the language code, the second the gender.</p>
+    <table>
+      <tr><th>Language</th><th>Voices</th></tr>
+      <tr><td>🇺🇸 American English</td><td><code>af_sky</code> <code>af_bella</code> <code>af_kore</code> <code>am_adam</code> <code>am_liam</code> …</td></tr>
+      <tr><td>🇬🇧 British English</td><td><code>bf_emma</code> <code>bf_alice</code> <code>bm_daniel</code> <code>bm_george</code> …</td></tr>
+      <tr><td>🇪🇸 Spanish</td><td><code>ef_dora</code> <code>em_santa</code></td></tr>
+      <tr><td>🇫🇷 French</td><td><code>ff_siwis</code></td></tr>
+      <tr><td>🇮🇳 Hindi</td><td><code>hf_alpha</code> <code>hm_psi</code> <code>hm_omega</code></td></tr>
+      <tr><td>🇮🇹 Italian</td><td><code>if_sara</code> <code>im_nicola</code></td></tr>
+      <tr><td>🇯🇵 Japanese</td><td><code>jf_gongitsune</code> <code>jf_nezumi</code> <code>jm_kumo</code></td></tr>
+      <tr><td>🇧🇷 Brazilian Portuguese</td><td><code>pf_dora</code> <code>pm_santa</code></td></tr>
+      <tr><td>🇨🇳 Mandarin Chinese</td><td><code>zf_xiaobei</code> <code>zm_yunxi</code> <code>zf_xiaoxiao</code></td></tr>
+    </table>
+    <p style="margin-top:12px;">Full voice list: <a href="https://huggingface.co/hexgrad/Kokoro-82M/blob/main/VOICES.md" target="_blank" rel="noopener">Kokoro-82M voices</a> · <a href="https://claudio.uk/posts/audiblez-v4.html" target="_blank" rel="noopener">audio samples</a></p>
+  </div>
+</section>
+
+<section id="server">
+  <div class="wrap">
+    <h2><span class="emo">🌐</span> Remote TTS server</h2>
+    <p><code>remote_tts_server/</code> ships a standalone Kokoro TTS server (FastAPI + uvicorn) so the native GUI (or any client) can run on a different machine than the one doing the synthesis.</p>
+    <pre><code># from the repo root
+python -m remote_tts_server.server --host 0.0.0.0 --port 8000
+# or: uvicorn remote_tts_server.server:app --host 0.0.0.0 --port 8000</code></pre>
+    <p>It listens on <code>0.0.0.0:8000</code> by default. Point the GUI's controller URL at the host running the server and it streams jobs over the same JSON protocol.</p>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <p>Audiblez — generate audiobooks from e-books with Kokoro TTS.</p>
+    <p>Original project by <a href="https://claudio.uk" target="_blank" rel="noopener">Claudio Santini</a> (2025), under the MIT license · Native GUI and remote TTS server added by <a href="https://github.com/shevchukdp/audiblez" target="_blank" rel="noopener">this fork</a>.</p>
+    <p><a href="https://github.com/shevchukdp/audiblez">Repository</a> · <a href="https://github.com/shevchukdp/audiblez/blob/main/LICENSE">MIT License</a> · <a href="https://claudio.uk/posts/audiblez-v4.html">Read the article</a></p>
+  </div>
+</footer>
+
+</body>
+</html>
