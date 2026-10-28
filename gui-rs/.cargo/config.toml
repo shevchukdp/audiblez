@@ -10,25 +10,24 @@
 #
 #   * `crt2.o` (gnullvm's bundled CRT object) provides `mainCRTStartup`, the
 #     entry point that rustc's `fn main` maps to.
-#   * `-lunwind` resolves to a `libunwind.a` that contains the real static
-#     unwind implementation (see below), providing the `_Unwind_*` symbols that
-#     libstd's panic_unwind references.
+#   * `-lunwind` resolves to `gui-rs\vendor\libunwind.a` (first `-L` below), a
+#     vendored byte-identical copy of the toolchain's `libgcc_eh.a`. It contains
+#     the real static unwind implementation providing the `_Unwind_*` symbols
+#     that libstd's panic_unwind references. The gnullvm target does not ship a
+#     `libunwind.a`, so we carry our own instead of injecting one into the
+#     toolchain dir (which a `rustup update` would wipe).
 #
 # Because rust-lld is used as an external linker, rust does not automatically
 # pass the toolchain's standard `-L` search paths, so we append the two dirs
 # that hold the bundled import libraries here.
-#
-# Reproducibility: the `libunwind.a` shim lives in the toolchain's
-# `self-contained` dir (outside the repo) because it simply reuses the toolchain's
-# own `libgcc_eh.a`. A `rustup update` would reset that file to the (missing)
-# default; if a future build fails with "unable to find -lunwind" or undefined
-# `_Unwind_*`, regenerate it with:
-#     cp <toolchain>/x86_64-pc-windows-gnu/lib/rustlib/x86_64-pc-windows-gnu/lib/
-#        self-contained/libgcc_eh.a <toolchain>/.../self-contained/libunwind.a
 
 [target.x86_64-pc-windows-gnullvm]
 linker = "C:\\Users\\shevc\\.rustup\\toolchains\\stable-x86_64-pc-windows-gnu\\lib\\rustlib\\x86_64-pc-windows-gnu\\bin\\rust-lld.exe"
 rustflags = [
+    "-C",
+    # vendored libunwind.a (copy of the toolchain's libgcc_eh.a) — must come
+    # first so -lunwind resolves here, independent of the toolchain dir
+    "link-arg=-LC:\\temp\\opencode\\audiblez\\gui-rs\\vendor",
     "-C",
     "link-arg=-LC:\\Users\\shevc\\.rustup\\toolchains\\stable-x86_64-pc-windows-gnu\\lib\\rustlib\\x86_64-pc-windows-gnu\\lib",
     "-C",

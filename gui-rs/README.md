@@ -52,6 +52,13 @@ because the machine has neither an MSVC `link.exe` nor a 64-bit clang/LLVM. The
 (`kernel32`, `user32`, `opengl32`, ...) via the `rustflags` in that config, so no
 system linker or `dlltool` is needed.
 
+The gnullvm target does not ship a `libunwind.a` for the `-lunwind` it passes by
+default, so the repo vendors one at `gui-rs\vendor\libunwind.a` — a byte-identical
+copy of the GNU toolchain's `libgcc_eh.a`, which provides the `_Unwind_*` symbols
+libstd's panic handler needs. Because it lives in the repo (and its dir is the
+first `-L` in `config.toml`), the build no longer depends on any file copied into
+the toolchain directory and therefore survives `rustup update`.
+
 > Note: building with the plain `--target x86_64-pc-windows-gnu` target instead
 > hits `dlltool` import-lib generation errors on some crates; the gnullvm target
 > avoids that.
