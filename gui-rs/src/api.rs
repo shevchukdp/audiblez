@@ -34,6 +34,15 @@ pub struct RunParams {
     pub genre: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pick_manually: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_chapters: Option<i32>,
+}
+
+/// One file produced by a job in the server's output folder.
+#[derive(Debug, Clone, Deserialize)]
+pub struct OutputFile {
+    pub name: String,
+    pub size: u64,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -119,4 +128,77 @@ impl Client {
         self.http.post(&url).send().await.map_err(|e| e.to_string())?;
         Ok(())
     }
+
+    /// Upload a book to the server (full-server mode). Returns the server-side
+    /// path to use as `file_path` in run().
+    pub async fn upload(&self, name: &str, bytes: Vec<u8>) -> Result<String, String> {
+        let url = format!("{}/upload?name={}", self.base_url, pct_encode(name));
+        let resp = self
+            .http
+            .post(&url)
+            .header(reqwest::header::CONTENT_TYPE, "application/octet-stream")
+            .body(bytes)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let msg = resp.text().await.unwrap_or_default();
+            return Err(format!("upload failed {}: {}", status, msg));
+        }
+        #[derive(Deserialize)]
+        struct Up {
+            path: String,
+        }
+        let up: Up = resp.json().await.map_err(|e| e.to_string())?;
+        Ok(up.path)
+    }
+
+    /// List finished job outputs. Empty/"auto" folder = server default folder.
+    pub async fn outputs(&self, folder: &str) -> Result<Vec<OutputFile>, String> {
+        let url = format!("{}/outputs?folder={}", self.base_url, pct_encode(folder));
+        let resp = self.http.get(&url).send().await.map_err(|e| e.to_string())?;
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let msg = resp.text().await.unwrap_or_default();
+            return Err(format!("outputs failed {}: {}", status, msg));
+        }
+        #[derive(Deserialize)]
+        struct Out {
+            files: Vec<OutputFile>,
+        }
+        let out: Out = resp.json().await.map_err(|e| e.to_string())?;
+        Ok(out.files)
+    }
+
+    /// Download one output file's bytes from the server.
+    pub async fn download(&self, folder: &str, name: &str) -> Result<Vec<u8>, String> {
+        let url = format!(
+            "{}/download?folder={}&name={}",
+            self.base_url,
+            pct_encode(folder),
+            pct_encode(name)
+        );
+        let resp = self.http.get(&url).send().await.map_err(|e| e.to_string())?;
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let msg = resp.text().await.unwrap_or_default();
+            return Err(format!("download failed {}: {}", status, msg));
+        }
+        resp.bytes().await.map(|b| b.to_vec()).map_err(|e| e.to_string())
+    }
+}
+
+/// Minimal percent-encoding for query parameters (leaves unreserved chars).
+fn pct_encode(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for b in s.as_bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => {
+                out.push(*b as char)
+            }
+            _ => out.push_str(&format!("%{:02X}", b)),
+        }
+    }
+    out
 }

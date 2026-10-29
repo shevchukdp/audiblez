@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex};
 use eframe::{egui, App as EframeApp};
 use egui::RichText;
 
-use crate::api::{Client, RunParams};
+use crate::api::{self, Client, RunParams};
 use crate::dialogs;
 use crate::settings::Settings;
 
@@ -51,6 +51,10 @@ pub struct App {
     genre: String,
     // feedback
     last_message: String,
+    // full-server mode: outputs listed by the server after the job finished,
+    // plus the folder they came from (for downloads).
+    server_files: Vec<api::OutputFile>,
+    server_folder: String,
 }
 
 impl App {
@@ -69,6 +73,8 @@ impl App {
             encode: "cbr".into(),
             genre: "Audiobook".into(),
             last_message: String::new(),
+            server_files: Vec::new(),
+            server_folder: String::new(),
         };
         this.refresh_status();
         this
@@ -85,10 +91,22 @@ impl App {
                 self.job.chapter = s.chapter.to_string();
                 if let Some(stats) = s.stats.as_object() {
                     if let Some(p) = stats.get("progress").and_then(|v| v.as_f64()) {
-                        self.job.progress = (p * 100.0) as f32;
+                        // server sends 0-100 already
+                        self.job.progress = p.clamp(0.0, 100.0) as f32;
                     }
                     if let Some(eta) = stats.get("eta").and_then(|v| v.as_str()) {
                         self.job.eta = eta.to_string();
+                    }
+                }
+                // Full-server mode: once the server finished, list its outputs
+                // so the user can download the audiobook to the laptop.
+                if self.job.status == "finished"
+                    && self.server_files.is_empty()
+                    && self.settings.lock().unwrap().full_server
+                {
+                    match rt.block_on(self.client.outputs(&self.server_folder)) {
+                        Ok(files) => self.server_files = files,
+                        Err(e) => self.last_message = format!("outputs: {e}"),
                     }
                 }
             }
@@ -113,11 +131,41 @@ impl App {
     }
 
     fn on_run(&mut self) {
+        let full_server = self.settings.lock().unwrap().full_server;
+        // Full-server mode: the laptop only uploads the book; every byte of
+        // processing (TTS, ffmpeg) runs on the server.
+        let server_file_path = if full_server {
+            if self.file_path.trim().is_empty() {
+                self.last_message = "pick a book file first".into();
+                return;
+            }
+            let bytes = match std::fs::read(&self.file_path) {
+                Ok(b) => b,
+                Err(e) => {
+                    self.last_message = format!("read book: {e}");
+                    return;
+                }
+            };
+            let name = std::path::Path::new(&self.file_path)
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_else(|| "book.epub".into());
+            let rt = self.rt.clone();
+            match rt.block_on(self.client.upload(&name, bytes)) {
+                Ok(p) => p,
+                Err(e) => {
+                    self.last_message = e;
+                    return;
+                }
+            }
+        } else {
+            self.file_path.clone()
+        };
         let params = RunParams {
-            file_path: self.file_path.clone(),
+            file_path: server_file_path,
             voice: self.settings.lock().unwrap().default_voice.clone(),
             speed: 1.0,
-            output_folder: self.output_folder.clone(),
+            output_folder: if full_server { "auto".into() } else { self.output_folder.clone() },
             model_path: non_blank(&self.model_path),
             device: non_blank(&self.device),
             tts_url: non_blank(&self.settings.lock().unwrap().tts_url.clone()),
@@ -128,11 +176,37 @@ impl App {
             include_cover: Some(self.settings.lock().unwrap().cover),
             genre: non_blank(&self.genre),
             pick_manually: Some(false),
+            max_chapters: None,
         };
         let rt = self.rt.clone();
         let _ = self.settings.lock().unwrap().save();
+        self.server_files.clear();
+        self.server_folder = String::new();
         match rt.block_on(self.client.run(&params)) {
-            Ok(_) => self.last_message = "job submitted".into(),
+            Ok(_) => self.last_message = if full_server {
+                "book uploaded; job running on server".into()
+            } else {
+                "job submitted".into()
+            },
+            Err(e) => self.last_message = e,
+        }
+    }
+
+    /// Download one server-side output to a local path chosen by the user.
+    fn save_server_file(&mut self, name: &str) {
+        let folder = self.server_folder.clone();
+        let name = name.to_string();
+        let target = match dialogs::save_file("Save audiobook", &name) {
+            Some(p) => p,
+            None => return,
+        };
+        let rt = self.rt.clone();
+        match rt.block_on(self.client.download(&folder, &name)) {
+            Ok(bytes) => match std::fs::write(&target, &bytes) {
+                Ok(_) => self.last_message =
+                    format!("saved {} ({} bytes) to {}", name, bytes.len(), target),
+                Err(e) => self.last_message = format!("write failed: {e}"),
+            },
             Err(e) => self.last_message = e,
         }
     }
@@ -222,6 +296,10 @@ impl EframeApp for App {
                 ui,
                 "e.g. http://100.66.167.48:8000 — runs Kokoro on the GPU. Blank = synthesize on the controller.",
             );
+            ui.checkbox(
+                &mut self.settings.lock().unwrap().full_server,
+                "Full server mode (upload book; ALL processing incl. ffmpeg runs on the server)",
+            );
 
             ui.add_space(8.0);
             ui.text_edit_singleline(&mut self.model_path);
@@ -298,6 +376,24 @@ impl EframeApp for App {
             if !self.last_message.is_empty() {
                 ui.add_space(4.0);
                 ui.label(RichText::new(&self.last_message).small());
+            }
+
+            if !self.server_files.is_empty() {
+                ui.add_space(6.0);
+                ui.label("Server outputs:");
+                let files = self.server_files.clone();
+                for f in files {
+                    ui.horizontal(|ui| {
+                        ui.label(format!(
+                            "{} ({:.1} MB)",
+                            f.name,
+                            f.size as f64 / 1_048_576.0
+                        ));
+                        if ui.button("Save\u{2026}").clicked() {
+                            self.save_server_file(&f.name);
+                        }
+                    });
+                }
             }
         });
 

@@ -17,8 +17,10 @@ Usage:
 import argparse
 import json
 import sys
+import tempfile
 import threading
 import traceback
+import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -80,6 +82,27 @@ class CoreState:
 
 STATE = CoreState()
 
+# Where uploaded books and "auto" job outputs live on the server. Full-server
+# mode: the (thin) GUI client uploads the .epub here, the server does ALL
+# processing (TTS + ffmpeg) and the client downloads results via /download.
+UPLOAD_ROOT = Path(tempfile.gettempdir()) / "audiblez_uploads"
+MAX_UPLOAD = 200 * 1024 * 1024  # 200 MB books are plenty
+
+
+def _safe_folder(folder):
+    """Resolve a requested output folder, refusing anything outside
+    UPLOAD_ROOT — a LAN client must not be able to read arbitrary server
+    files via /outputs or /download."""
+    d = (UPLOAD_ROOT / "out") if (not folder or folder.lower() == "auto") else Path(folder)
+    try:
+        d = d.resolve()
+        root = UPLOAD_ROOT.resolve()
+    except OSError:
+        return None
+    if d != root and not d.is_relative_to(root):
+        return None
+    return d
+
 # kwargs that audiblez.core.main actually accepts. Any extra keys the GUI sends
 # (device, model_path, format_out, bitrate, quality, ...) are future GPU/TTS
 # configuration; they are logged and dropped for now so the engine call can't
@@ -111,6 +134,12 @@ def run_job(params):
         # native GUI never sends it (chapter selection is non-interactive there).
         params.setdefault("pick_manually", False)
         core_kwargs = {k: v for k, v in params.items() if k in CORE_KWARGS}
+        # "auto"/missing output folder = server-side uploads/out dir, so a thin
+        # remote client never has to name a path that exists only on its own PC.
+        of = str(core_kwargs.get("output_folder") or "").strip()
+        if not of or of.lower() == "auto":
+            core_kwargs["output_folder"] = str(UPLOAD_ROOT / "out")
+            Path(core_kwargs["output_folder"]).mkdir(parents=True, exist_ok=True)
         extras = {k: v for k, v in params.items() if k not in CORE_KWARGS}
         if extras:
             print(f"[audiblez] ignoring unrecognized params: {sorted(extras)}")
@@ -134,7 +163,10 @@ def make_handler():
             self.wfile.write(body)
 
         def do_GET(self):
-            if self.path.split("?")[0] == "/status":
+            path = self.path.split("?")[0]
+            qs = urllib.parse.parse_qs(self.path.split("?", 1)[1] if "?" in self.path else "")
+
+            if path == "/status":
                 with STATE.lock:
                     self._send(200, {
                         "status": STATE.status,
@@ -144,18 +176,77 @@ def make_handler():
                         "chapters_total": STATE.chapters_total,
                     })
                 return
+
+            if path == "/outputs":
+                d = _safe_folder((qs.get("folder") or [""])[0].strip())
+                if d is None:
+                    self._send(403, {"error": "forbidden"})
+                    return
+                if not d.is_dir():
+                    self._send(404, {"error": f"no such folder: {d}"})
+                    return
+                files = [{"name": p.name, "size": p.stat().st_size}
+                         for p in sorted(d.iterdir()) if p.is_file()]
+                self._send(200, {"folder": str(d), "files": files})
+                return
+
+            if path == "/download":
+                d = _safe_folder((qs.get("folder") or [""])[0].strip())
+                name = Path((qs.get("name") or [""])[0]).name  # no directories
+                if d is None or not name:
+                    self._send(403, {"error": "forbidden"})
+                    return
+                target = (d / name).resolve()
+                if not target.is_relative_to(d) or not target.is_file():
+                    self._send(404, {"error": f"no such file: {name}"})
+                    return
+                data = target.read_bytes()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/octet-stream")
+                self.send_header("Content-Length", str(len(data)))
+                self.send_header("Content-Disposition",
+                                 f'attachment; filename="{name}"')
+                self.end_headers()
+                self.wfile.write(data)
+                return
+
             self._send(404, {"error": "not found"})
 
         def do_POST(self):
             length = int(self.headers.get("Content-Length", "0"))
+            path = self.path.split("?")[0]
+
+            if path == "/upload":
+                # Raw body upload: POST /upload?name=book.epub
+                if length <= 0 or length > MAX_UPLOAD:
+                    self._send(400, {"error": f"bad size {length}"})
+                    return
+                qs = urllib.parse.parse_qs(
+                    self.path.split("?", 1)[1] if "?" in self.path else "")
+                name = Path((qs.get("name") or ["book.epub"])[0]).name
+                if not name or name in (".", ".."):
+                    self._send(400, {"error": "bad name"})
+                    return
+                target = UPLOAD_ROOT / name
+                UPLOAD_ROOT.mkdir(parents=True, exist_ok=True)
+                remaining = length
+                with open(target, "wb") as f:
+                    while remaining > 0:
+                        chunk = self.rfile.read(min(1 << 16, remaining))
+                        if not chunk:
+                            break
+                        f.write(chunk)
+                        remaining -= len(chunk)
+                self._send(200, {"path": str(target), "name": name,
+                                 "size": length})
+                return
+
             raw = self.rfile.read(length) if length else b"{}"
             try:
                 params = json.loads(raw or b"{}")
             except json.JSONDecodeError:
                 self._send(400, {"error": "bad json"})
                 return
-
-            path = self.path.split("?")[0]
 
             if path == "/stop":
                 # best-effort stop: the running job checks status each chapter

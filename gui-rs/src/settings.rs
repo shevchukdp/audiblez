@@ -15,6 +15,11 @@ pub struct Settings {
     /// http://100.66.167.48:8000. Blank = synthesize locally on the controller.
     #[serde(default)]
     pub tts_url: String,
+    /// true = "thin client" mode: upload the book to the controller, run ALL
+    /// processing there (TTS + ffmpeg), then download the result. The
+    /// laptop's CPU does nothing but HTTP.
+    #[serde(default)]
+    pub full_server: bool,
     pub default_voice: String,
     pub bitrate: String,
     pub quality: i32,
@@ -27,6 +32,7 @@ impl Default for Settings {
             remote: false,
             controller_url: "http://127.0.0.1:8765".into(),
             tts_url: String::new(),
+            full_server: false,
             default_voice: "af_sky".into(),
             bitrate: "128".into(),
             quality: 4,

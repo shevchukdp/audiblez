@@ -79,6 +79,35 @@ the job. Any winlibs/MSYS2 mingw-w64 (GCC 13+) works; e.g.
 Runtime evidence on the last verified build: process stays alive, Win32 reports
 `IsWindow=True IsWindowVisible=True Title='audiblez'`, empty stderr, no panic.
 
+## Full server mode (thin client — ALL processing on the server)
+
+For a laptop + CUDA-box setup, tick **Full server mode** in the GUI: the client
+only uploads the `.epub` (`POST /upload`), the controller does *everything*
+(chapter extraction, TTS, ffmpeg) with `output_folder="auto"`, and the finished
+`mao.m4b` is listed via `GET /outputs` and pulled down via `GET /download`
+with the **Save…** button. The laptop's CPU does nothing but HTTP.
+
+Controller endpoints added for this: `POST /upload?name=book.epub` (raw
+bytes), `GET /outputs?folder=` and `GET /download?folder=&name=` — both
+restricted to the server's uploads dir (anything outside → 403).
+
+On the GPU box, run just the controller (it needs the full audiblez env +
+ffmpeg + espeak-ng; leave the TTS-server field blank so Kokoro uses the
+server's own CUDA):
+
+```bash
+python -m audiblez.backend_controller --host 0.0.0.0 --port 8765
+```
+
+Then GUI: Mode = remote, controller `http://<box>:8765`, tick Full server mode.
+
+Headless verification of the exact client code path (used as CI-style proof):
+
+```powershell
+audiblez.exe --selftest http://127.0.0.1:8765 C:\TEST\ebook\mao.epub out\result.m4b 1
+# SELFTEST uploaded ... -> job done ... -> SELFTEST OK: downloaded mao.m4b
+```
+
 ## Remote CUDA GPU (spark01 / spark02)
 
 Synthesis (Kokoro-82M) is the only heavy step — run it on a GPU box and keep
