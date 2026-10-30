@@ -206,11 +206,16 @@ audiblez-ui</code></pre>
       <div class="card"><h3>Native &amp; fast</h3><p>egui/eframe, single Windows executable — no Python runtime needed at launch.</p></div>
       <div class="card"><h3>Transport-agnostic</h3><p>Local or remote controller via the existing JSON protocol.</p></div>
       <div class="card"><h3>File pickers</h3><p>Native Windows open-file dialogs to choose the <code>.epub</code>.</p></div>
+      <div class="card"><h3>Thin client + GPU</h3><p><strong>Full server mode</strong>: upload the book, the CUDA box does TTS <em>and</em> ffmpeg, download the finished <code>.m4b</code>. The laptop's CPU does nothing but HTTP.</p></div>
     </div>
     <pre><code># build the native Windows executable (needs mingw-w64 gcc/as/dlltool on PATH)
 cargo build --release --target x86_64-pc-windows-gnu
 # -> target/x86_64-pc-windows-gnu/release/audiblez.exe</code></pre>
     <p>Built with the standard <code>x86_64-pc-windows-gnu</code> target and a real mingw-w64 toolchain (GCC 13+, e.g. <a href="https://winlibs.com/">winlibs</a>) — its <code>dlltool</code> + <code>as</code> generate the <code>raw-dylib</code> import libs. Verified running: the window opens, Win32 reports <code>IsWindowVisible=True</code>, no panics. See <code>gui-rs/README.md</code> for exact build steps and why the <code>gnullvm</code> and MSVC targets don't work on a bare rustup machine. The <code>.epub</code> is sent to the controller, which runs the same Python pipeline (TTS → ffmpeg) under the hood.</p>
+    <pre><code># on the GPU box — one service does everything:
+python -m audiblez.backend_controller --host 0.0.0.0 --port 8765
+# GUI: Mode=remote, controller http://&lt;gpu-box&gt;:8765, tick "Full server mode"</code></pre>
+    <p>In full-server mode the GUI uploads the book via <code>POST /upload</code>, the server runs extraction, Kokoro TTS and ffmpeg with <code>output_folder=auto</code>, and the result is fetched with <code>GET /outputs</code> / <code>GET /download</code> (jailed to the server's uploads dir). Headless proof of the exact client path: <code>audiblez --selftest &lt;controller&gt; &lt;book&gt; &lt;out.m4b&gt; 1</code> → upload byte-exact, job finished, valid m4b downloaded, exit 0.</p>
   </div>
 </section>
 
